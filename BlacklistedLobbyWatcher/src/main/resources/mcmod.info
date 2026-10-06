@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "blacklistedlobbywatcher",
+    "name": "Blacklisted Lobby Watcher",
+    "description": "Client-side lobby watcher with a configurable blacklist and alert GUI.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "updateUrl": "",
+    "authorList": ["You"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]
