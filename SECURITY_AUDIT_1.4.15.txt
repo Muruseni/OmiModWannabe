@@ -1,0 +1,160 @@
+OmenaMod 1.4.15 - Static Security / Server-Interaction Audit
+Date: 2026-10-09
+Scope: OmenaMod_1.4.15.jar and OmenaMod_1.4.15-source.zip
+
+SUMMARY
+Overall assessment: LOW security risk in OmenaMod itself, with several reliability/hardening items.
+No high-severity vulnerability, credential theft, hidden networking, arbitrary code execution,
+custom packet channel, telemetry, or bundled suspicious payload was found in this audit.
+
+This is a static audit, not a guarantee that the program or the legacy Minecraft/Forge/Lunar
+runtime is vulnerability-free.
+
+ARTIFACT INTEGRITY
+- JAR SHA-256: 29fbf6c005922a97f20013b56371c284c954435f5c1b276686e16d9825fd30f5
+- Source ZIP SHA-256: db4747477c910ef2434c2126c7fb0f271bcebf4678c76aba64318ff46e35ad27
+- JAR ZIP integrity test: PASS
+- Packaged classes: 73
+- Java class version: all 73 are version 52 / Java 8
+- Unexpected packaged third-party classes: none found
+- JAR signing: unsigned
+
+SERVER / NETWORK INTERACTION
+The only intentional outbound server-command path found in the packaged mod is in
+FriendListWatcher and uses Minecraft's normal chat-command sender for:
+- /friend add <valid IGN>
+- /friend remove <valid IGN>
+- /ff on
+- /ff off
+
+GUI Friend actions are constrained by:
+- exact pitclassic.net or a subdomain of pitclassic.net
+- NETWORK LOBBY blocking
+- valid Minecraft IGN validation
+- target must be in the locally received lobby player list for /friend add/remove
+- 650 ms command cooldown
+
+No evidence was found of:
+- java.net HTTP/socket networking
+- webhooks or telemetry
+- custom Minecraft packets
+- sendPacket / addToSendQueue paths
+- SimpleNetworkWrapper / plugin channels
+- external API calls
+- background automated friend/ff command loops
+
+Blacklist/player-list scanning, Mystic Watcher, equipment inspection, HUDs and alerts read data
+Minecraft has already received. They do not request another player's inventory/equipment or
+coordinates from the server.
+
+The source still contains private manual-command-history helper methods, but the live 1.4.15 tick
+path explicitly has manual outgoing-command mirroring disabled. These helpers have no call site.
+Removing this dead code is recommended to reduce future accidental reactivation.
+
+CODE EXECUTION / HOST ACCESS
+No use was found of:
+- Runtime.exec
+- ProcessBuilder
+- shell / PowerShell execution
+- System.load / loadLibrary
+- Unsafe
+- arbitrary Class.forName / dynamic class loading
+- executable reflection
+- clipboard/browser/Discord access
+- environment-variable harvesting
+
+The java.lang.reflect.Type reference is Gson TypeToken metadata used to deserialize a local
+List<String>; it is not executable reflection.
+
+ACCOUNT / CREDENTIAL ACCESS
+AccessControl reads only Minecraft's locally available session username for an explicit, currently
+empty denylist. It does not read the session token/access token or transmit the username.
+No credential, Microsoft token, Lunar token, browser token, or authentication-file access was found.
+
+LOCAL FILE ACCESS
+The mod writes only fixed files under Forge's supplied config directory:
+- blacklisted_lobby_watcher.json
+- blacklisted_lobby_watcher_colours.properties
+- blacklisted_lobby_watcher_extra_huds.properties
+- blacklisted_lobby_watcher_features.properties
+- blacklisted_lobby_watcher_friends.properties
+- blacklisted_lobby_watcher_hud.properties
+- blacklisted_lobby_watcher_lists.properties
+- blacklisted_lobby_watcher_sound.properties
+- omenamod_alert_throttle.properties
+- omenamod_custom_items.properties
+- omenamod_enchant_settings.properties
+- omenamod_mystic_watcher.properties
+- omenamod_player_gear_display.properties
+
+No user-controlled filename/path traversal was found. Player/list names are stored as values/keys,
+not filesystem paths.
+
+Many important configs have input-size caps and validation. Examples include:
+- blacklist: 256 KiB and max 1000 entries
+- extra lists: 256 KiB, max 5 lists, max 1000 entries/list
+- friends: 64 KiB and max 1000 entries
+- enchant settings: 256 KiB with key/value validation
+- custom item rules: <256 KiB and max 32 rules
+- HUD scales/coordinates are bounded
+- usernames are restricted to 1-16 [A-Za-z0-9_]
+
+Some preference managers use temp-file + atomic-replace saves, but several smaller managers still
+write directly. A crash/power loss during a save could corrupt those preferences. This is a local
+reliability issue, not a remote security compromise.
+
+SERVER-CONTROLLED DATA / PARSING
+Positive controls found:
+- formatted TAB text is sanitized and capped at 128 chars before Blacklist HUD/chat use
+- local chat output is capped
+- Friend TAB display text is capped at 128 chars
+- equipment lore parsing is bounded to 48 lore lines and 12 recognized enchants
+- only known OmenaMod catalogue enchants are accepted from item lore
+- enchant tiers are constrained to I/II/III
+- gear inspection catches failures and returns an empty result
+- custom rule names/criteria are length-limited and the number of rules is capped
+
+No server-provided string is interpreted as code, a class name, path, shell command, URL, or
+arbitrary sound resource.
+
+FINDINGS / HARDENING RECOMMENDATIONS
+
+1. LOW-MEDIUM availability risk: alert throttle maps can grow over a long session.
+   AlertThrottleManager stores unique event keys in in-memory HashMaps while throttling is enabled.
+   Rapidly changing player/item signatures could create many unique entries. This does not expose
+   data or execute code, but it could create gradual memory pressure.
+   Recommendation: cap/LRU these maps (for example 2048 entries) and/or expire old entries.
+
+2. LOW-MEDIUM availability risk: Mystic Watcher may retain/render many watched players.
+   Scanning is capped at 1000 TAB entries, but the HUD can still build many rows if a server presents
+   many matching players/items.
+   Recommendation: keep full detection if desired, but cap rendered Mystic HUD entries (for example
+   32-64) and show '+ N more'.
+
+3. LOW reliability risk: not every config save is atomic.
+   Recommendation: standardize all config writers on temp-file + atomic move/fallback, as already
+   done by BlacklistManager/SoundSettingsManager/etc.
+
+4. LOW reliability/maintenance risk: dead manual-command observer remains in source/class.
+   It is not called in 1.4.15, but previous versions showed this area was fragile under Lunar.
+   Recommendation: remove the unused methods entirely until a tested safe implementation is ready.
+
+5. BUILD / SUPPLY-CHAIN risk when rebuilding, not a runtime JAR vulnerability.
+   build.gradle uses ForgeGradle 2.1-SNAPSHOT and jcenter(), both legacy/reproducibility concerns.
+   Recommendation: use a controlled/pinned build environment and preserve checksums of build inputs.
+   Minecraft 1.8.9 / Forge 11.15.1.2318 are also legacy dependencies and may have vulnerabilities
+   outside OmenaMod's code.
+
+6. DISTRIBUTION integrity: the JAR is unsigned.
+   This is common for small Forge mods, but an altered copy cannot be authenticated by signature.
+   Recommendation: publish SHA-256 checksums with each release and, if practical, sign releases.
+
+SECURITY CONCLUSION
+No high-severity OmenaMod vulnerability was found in this static audit. In particular, no backdoor,
+credential-stealing behavior, arbitrary host code execution, hidden internet traffic, telemetry, or
+custom server packet system was found.
+
+The main remaining work is defensive hardening against client-side availability problems and local
+config corruption rather than confidentiality/integrity compromise. The only intentional outbound
+OmenaMod action is normal Minecraft chat-command submission for explicit Friendlist /ff and /friend
+GUI actions.
